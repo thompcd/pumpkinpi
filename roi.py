@@ -21,6 +21,8 @@ print("Python: Initialized")
 tof.open()
 print("Python: Opened")
 
+laughing = False
+
 # Left, right, top and bottom are relative to the SPAD matrix coordinates,
 # which will be mirrored in real scene coordinates.
 # (or even rotated, depending on the VM53L1X element alignment on the board and on the board position)
@@ -65,23 +67,32 @@ def scan(type="w"):
         return VL53L1X.VL53L1xUserRoi(0, 15, 15, 0)
 
 def laugh(duration):
-    for x in range(duration):
-        servo.value = 0.7
-        time.sleep(0.2)
-        servo.value = -0.7
-        time.sleep(0.2)
+    global laughing
+    try:
+        laughing = True
+        for x in range(duration):
+            servo.value = 0.7
+            time.sleep(0.2)
+            servo.value = -0.7
+            time.sleep(0.2)
+    finally:
+        laughing = False
 
-def service_servo(inRange):
-    if(inRange == True):
-        print("laughing")
-        #publish laugh on mqtt
-        try:
-            publish.single("porch/pumpkin1/laugh", payload=True, qos=0, retain=False, hostname="outpost.local", protocol=mqtt.MQTTv311)
-        except:
-            print("failed to publish mqtt message")
-        laugh(3)
-    else:
-        print("out of range")
+# The callback for when the client receives a CONNACK response from the server.
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+    # Subscribing in on_connect() means that if we lose the connection and
+    # reconnect then subscriptions will be renewed.
+    client.subscribe("porch/+/laugh")
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
+    laugh(8)
+
+client = mqtt.Client()
+client.on_connect = on_connect
+client.on_message = on_message
 
 if len(sys.argv) == 2:
     roi = scan(sys.argv[1])
@@ -89,12 +100,15 @@ else:
     roi = scan("default")
 
 tof.set_user_roi(roi)
-
 tof.start_ranging(1)
+
+client.connect("outpost.local")
+client.loop_start()
 
 def exit_handler(signal, frame):
     tof.stop_ranging()
     tof.close()
+    client.loop_stop()
     sys.exit(0)
 
 signal.signal(signal.SIGINT, exit_handler)
@@ -104,9 +118,8 @@ while True:
     if distance_mm < 0:
         # Error -1185 may occur if you didn't stop ranging in a previous test
         print("Error: {}".format(distance_mm))
-    elif distance_mm < 200:
-        service_servo(False)
-    else:
-        service_servo(True)
+    elif distance_mm > 200:
+        #publish message
+        client.publish("porch/pumpkin1/laugh", True)
     print("Distance: {}cm".format(distance_mm/10))
-    time.sleep(0.5)
+    time.sleep(0.1)
