@@ -2,8 +2,6 @@
 
 import sys, signal
 sys.path.insert(0, "build/lib.linux-armv7l-2.7/")
-from gpiozero import Servo, Device
-from gpiozero.pins.pigpio import PiGPIOFactory
 from time import sleep
 import VL53L1X
 import time
@@ -11,12 +9,8 @@ from datetime import datetime
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 
-#use pigpio to reduce servo jitter
-Device.pin_factory = PiGPIOFactory()
-
 #time of flight sensor setup
 tof = VL53L1X.VL53L1X(i2c_bus=1, i2c_address=0x29)
-servo = Servo(4)
 print("Python: Initialized")
 tof.open()
 print("Python: Opened")
@@ -70,11 +64,7 @@ def laugh(duration):
     global laughing
     try:
         laughing = True
-        for x in range(duration):
-            servo.value = 0.7
-            time.sleep(0.2)
-            servo.value = -0.7
-            time.sleep(0.2)
+        time.sleep(duration * 1000)
     finally:
         laughing = False
 
@@ -85,14 +75,8 @@ def on_connect(client, userdata, flags, rc):
     # reconnect then subscriptions will be renewed.
     client.subscribe("porch/+/laugh")
 
-# The callback for when a PUBLISH message is received from the server.
-def on_message(client, userdata, msg):
-    print(msg.topic+" "+str(msg.payload))
-    laugh(8)
-
 client = mqtt.Client()
 client.on_connect = on_connect
-client.on_message = on_message
 
 if len(sys.argv) == 2:
     roi = scan(sys.argv[1])
@@ -120,6 +104,8 @@ while True:
         print("Error: {}".format(distance_mm))
     elif distance_mm > 200:
         #publish message
-        client.publish("porch/pumpkin1/laugh", True)
+        if(laughing == False):
+           client.publish("porch/pumpkin1/laugh", True)
+           laugh(8)
     print("Distance: {}cm".format(distance_mm/10))
     time.sleep(0.1)
